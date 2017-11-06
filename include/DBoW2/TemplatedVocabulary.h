@@ -18,12 +18,15 @@
 #include <string>
 #include <algorithm>
 #include <opencv2/core.hpp>
+#include <fstream>
 
 #include "FeatureVector.h"
 #include "BowVector.h"
 #include "ScoringObject.h"
 
 #include <DUtils/DUtils.h>
+
+#include "dbow2voc.pb.h"
 
 namespace DBoW2 {
 
@@ -229,12 +232,16 @@ public:
    * @param filename
    */
   void save(const std::string &filename) const;
+
+  void saveProtobuf(const std::string& filename) const;
   
   /**
    * Loads the vocabulary from a file
    * @param filename
    */
   void load(const std::string &filename);
+
+  void loadProtobuf(const std::string& filename);
   
   /** 
    * Saves the vocabulary to a file storage structure
@@ -1328,12 +1335,79 @@ void TemplatedVocabulary<TDescriptor,F>::save(const std::string &filename) const
 template<class TDescriptor, class F>
 void TemplatedVocabulary<TDescriptor,F>::load(const std::string &filename)
 {
+	std::string ending("proto");
+	if (filename.length() >= ending.length()) {
+		if(0 == filename.compare (filename.length() - ending.length(), ending.length(), ending)){
+			loadProtobuf(filename);
+			return;
+		}
+	} 
   cv::FileStorage fs(filename.c_str(), cv::FileStorage::READ);
   if(!fs.isOpened()) throw std::string("Could not open file ") + filename;
   
   this->load(fs);
 }
 
+// --------------------------------------------------------------------------
+
+template<class TDescriptor, class F>
+void TemplatedVocabulary<TDescriptor,F>::saveProtobuf(const std::string &name) const
+{
+  std::ofstream outfile(name.c_str(), std::ios::out|std::ios::binary);
+  
+  visual_localization::Vocabulary voc;
+  voc.set_k(m_k);
+  voc.set_l(m_L);
+  voc.set_scoring_type((int)m_scoring);
+  voc.set_weighting_type((int)m_weighting);
+  // tree
+  std::vector<NodeId> parents, children;
+  std::vector<NodeId>::const_iterator pit;
+
+  parents.push_back(0); // root
+
+  while(!parents.empty())
+  {
+    NodeId pid = parents.back();
+    parents.pop_back();
+
+    const Node& parent = m_nodes[pid];
+    children = parent.children;
+
+    for(pit = children.begin(); pit != children.end(); pit++)
+    {
+      const Node& child = m_nodes[*pit];
+
+      // save node data
+	  auto node = voc.add_nodes();
+	  node->set_node_id((int)child.id);
+	  node->set_parent_id((int)pid);
+	  node->set_weight((double)child.weight);
+	  node->set_node_descriptor(F::toString(child.descriptor));
+      
+      // add to parent list
+      if(!child.isLeaf())
+      {
+        parents.push_back(*pit);
+      }
+    }
+  }
+  
+  typename std::vector<Node*>::const_iterator wit;
+  for(wit = m_words.begin(); wit != m_words.end(); wit++)
+  {
+    WordId id = wit - m_words.begin();
+	auto word = voc.add_words();
+	word->set_word_id((int)id);
+	word->set_node_id((int)(*wit)->id);
+  }
+
+  if(!voc.SerializeToOstream(&outfile)){
+	  std::cerr << "Failed to write protobuf" << std::endl;
+  }
+  outfile.close();
+  
+}
 // --------------------------------------------------------------------------
 
 template<class TDescriptor, class F>
@@ -1431,6 +1505,65 @@ void TemplatedVocabulary<TDescriptor,F>::save(cv::FileStorage &f,
 
 }
 
+// --------------------------------------------------------------------------
+
+template<class TDescriptor, class F>
+void TemplatedVocabulary<TDescriptor,F>::loadProtobuf(const std::string &name)
+{
+  m_words.clear();
+  m_nodes.clear();
+
+  std::fstream infile(name, std::ios::in|std::ios::binary);
+  if(!infile.is_open()){
+	  std::cerr << "Failed to open " << name << std::endl;
+	  return;
+  }
+
+  visual_localization::Vocabulary voc;
+  if(!voc.ParseFromIstream(&infile)){
+	  std::cerr << "Failed to parse " << name << std::endl;
+	  return;
+  }
+  
+  m_k = voc.k();
+  m_L = voc.l();
+  m_scoring = (ScoringType)voc.scoring_type();
+  m_weighting = (WeightingType)voc.weighting_type();
+  
+  createScoringObject();
+
+  m_nodes.resize(voc.nodes_size() + 1); // +1 to include root
+  m_nodes[0].id = 0;
+
+  for(int i = 0; i < voc.nodes_size(); ++i)
+  {
+	auto node = voc.nodes(i);
+    NodeId nid = node.node_id();
+    NodeId pid = node.parent_id();
+    WordValue weight = (WordValue)node.weight();
+    std::string d = node.node_descriptor();
+    
+    m_nodes[nid].id = nid;
+    m_nodes[nid].parent = pid;
+    m_nodes[nid].weight = weight;
+    m_nodes[pid].children.push_back(nid);
+    
+    F::fromString(m_nodes[nid].descriptor, d);
+  }
+  
+  m_words.resize(voc.words_size());
+
+  for(int i = 0; i < voc.words_size(); ++i)
+  {
+	auto word = voc.words(i);
+    NodeId wid = word.word_id();
+    NodeId nid = word.node_id();
+    
+    m_nodes[nid].word_id = wid;
+    m_words[wid] = &m_nodes[nid];
+  }
+  infile.close();
+}
 // --------------------------------------------------------------------------
 
 template<class TDescriptor, class F>

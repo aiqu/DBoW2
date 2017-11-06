@@ -11,6 +11,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     "MinSizeRel" "RelWithDebInfo")
 endif()
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -march=native -O3")
+
 if(MSVC)
   if(CMAKE_CXX_FLAGS MATCHES "/W[0-4]")
     string(REGEX REPLACE "/W[0-4]" "/W4" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
@@ -25,10 +27,10 @@ set(HDRS
   include/DBoW2/BowVector.h           include/DBoW2/FBrief.h              include/DBoW2/FSurf64.h
   include/DBoW2/QueryResults.h        include/DBoW2/TemplatedDatabase.h   include/DBoW2/FORB.h
   include/DBoW2/DBoW2.h               include/DBoW2/FClass.h              include/DBoW2/FeatureVector.h
-  include/DBoW2/ScoringObject.h       include/DBoW2/TemplatedVocabulary.h)
+  include/DBoW2/ScoringObject.h       include/DBoW2/TemplatedVocabulary.h include/DBoW2/dbow2voc.pb.h)
 set(SRCS 
   src/BowVector.cpp     src/FBrief.cpp        src/FSurf64.cpp       src/FORB.cpp
-  src/FeatureVector.cpp src/QueryResults.cpp  src/ScoringObject.cpp)
+  src/FeatureVector.cpp src/QueryResults.cpp  src/ScoringObject.cpp src/dbow2voc.pb.cc)
 
 set(DEPENDENCY_DIR ${CMAKE_CURRENT_BINARY_DIR}/dependencies)
 set(DEPENDENCY_INSTALL_DIR ${DEPENDENCY_DIR}/install)
@@ -38,6 +40,9 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 
 find_package(Boost REQUIRED)
 include_directories(${Boost_INCLUDE_DIR})
+
+find_package(Protobuf REQUIRED)
+include_directories(${Protobuf_INCLUDE_DIR})
 
 find_package(DLib QUIET 
   PATHS ${DEPENDENCY_INSTALL_DIR})
@@ -65,7 +70,7 @@ if(BUILD_DBoW2)
   add_library(${PROJECT_NAME} SHARED ${SRCS})
   include_directories(include/DBoW2/)
   add_dependencies(${PROJECT_NAME} Dependencies)
-  target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS} ${DLib_LIBS})
+  target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS} ${DLib_LIBS} ${PROTOBUF_LIBRARY})
 endif(BUILD_DBoW2)
 
 if(BUILD_Demo)
